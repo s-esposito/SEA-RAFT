@@ -5,7 +5,7 @@ import os
 import cv2
 import math
 import numpy as np
-
+import glob
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -92,27 +92,18 @@ def calc_flow(args, model, image1, image2):
     return flow_down, info_down
 
 @torch.no_grad()
-def demo_data(path, args, model, image1, image2):
+def demo_data(path, mode, args, model, image1, image2):
     os.system(f"mkdir -p {path}")
     H, W = image1.shape[2:]
     flow, info = calc_flow(args, model, image1, image2)
-    flow_vis = flow_to_image(flow[0].permute(1, 2, 0).cpu().numpy(), convert_to_bgr=True)
-    cv2.imwrite(f"{path}flow.jpg", flow_vis)
+    flow = flow[0].permute(1, 2, 0).cpu().numpy()
+    print("flow", flow.shape, flow.min(), flow.max())
+    # save as npy file
+    np.save(f"{path}{mode}_flow.npy", flow)
+    flow_vis = flow_to_image(flow, convert_to_bgr=True)
+    cv2.imwrite(f"{path}{mode}_flow.jpg", flow_vis)
     heatmap = get_heatmap(info, args)
-    vis_heatmap(f"{path}heatmap.jpg", image1[0].permute(1, 2, 0).cpu().numpy(), heatmap[0].permute(1, 2, 0).cpu().numpy())
-
-@torch.no_grad()
-def demo_custom(model, args, device=torch.device('cuda')):
-    image1 = cv2.imread("./custom/image1.jpg")
-    image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
-    image2 = cv2.imread("./custom/image2.jpg")
-    image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-    image1 = torch.tensor(image1, dtype=torch.float32).permute(2, 0, 1)
-    image2 = torch.tensor(image2, dtype=torch.float32).permute(2, 0, 1)
-    H, W = image1.shape[1:]
-    image1 = image1[None].to(device)
-    image2 = image2[None].to(device)
-    demo_data('./custom/', args, model, image1, image2)
+    vis_heatmap(f"{path}{mode}_heatmap.jpg", image1[0].permute(1, 2, 0).cpu().numpy(), heatmap[0].permute(1, 2, 0).cpu().numpy())
 
 def main():
     parser = argparse.ArgumentParser()
@@ -135,7 +126,32 @@ def main():
         device = torch.device('cpu')
     model = model.to(device)
     model.eval()
-    demo_custom(model, args, device=device)
+    
+    image1_path = "./custom/image1.*"
+    image2_path = "./custom/image2.*"
+    image1_path = glob.glob(image1_path)
+    if len(image1_path) == 0:
+        raise ValueError("No image1 found")
+    image2_path = glob.glob(image2_path)
+    if len(image2_path) == 0:
+        raise ValueError("No image2 found")
+    image1 = cv2.imread(image1_path[0])
+    image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
+    image2 = cv2.imread(image2_path[0])
+    image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+    # image1 = cv2.imread("./custom/image1.jpg")
+    # image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
+    # image2 = cv2.imread("./custom/image2.jpg")
+    # image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+    image1 = torch.tensor(image1, dtype=torch.float32).permute(2, 0, 1)
+    image2 = torch.tensor(image2, dtype=torch.float32).permute(2, 0, 1)
+    H, W = image1.shape[1:]
+    image1 = image1[None].to(device)
+    image2 = image2[None].to(device)
+    
+    with torch.no_grad():
+        demo_data('./custom/', 'fw', args, model, image1, image2)
+        demo_data('./custom/', 'bw', args, model, image2, image1)
 
 if __name__ == '__main__':
     main()
