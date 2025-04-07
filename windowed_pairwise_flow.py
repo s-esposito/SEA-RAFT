@@ -175,13 +175,13 @@ def main():
                 image2 = torch.tensor(image2, dtype=torch.float32).permute(2, 0, 1)
                 image2 = image2[None].to(device)
         
-                flow_fw, info_fw, heatmap_fw = demo_data(results_path, f'fw_{i_str}_{j_str}', args, model, image1, image2)
-                flow_bw, info_bw, heatmap_bw = demo_data(results_path, f'bw_{i_str}_{j_str}', args, model, image2, image1)
-                # flow_fw (H, W, 2)
-                # flow_bw (H, W, 2)
+                flow_i_to_j, info_fw, heatmap_fw = demo_data(results_path, f'fw_{i_str}_{j_str}', args, model, image1, image2)
+                flow_j_to_i, info_bw, heatmap_bw = demo_data(results_path, f'bw_{i_str}_{j_str}', args, model, image2, image1)
+                # flow_i_to_j (H, W, 2)
+                # flow_j_to_i (H, W, 2)
                     
-                mask_fw, error_fw = consistency_mask(flow_fw, flow_bw, tau)
-                mask_bw, error_bw = consistency_mask(flow_bw, flow_fw, tau)
+                mask_fw, error_fw = consistency_mask(flow_i_to_j, flow_j_to_i, tau)
+                mask_bw, error_bw = consistency_mask(flow_j_to_i, flow_i_to_j, tau)
                 
                 # vis errors
                 fig = plt.figure(figsize=(15, 5))
@@ -227,9 +227,9 @@ def main():
                 
                 # save of as npy file
                 optical_flow = np.zeros((2, H, W, 2), dtype=np.float32)
-                optical_flow[0] = flow_fw.cpu().numpy()
-                optical_flow[1] = flow_fw.cpu().numpy()
-                np.save(f"{results_path}flow_fw_{i_str}_{j_str}.npy", optical_flow)
+                optical_flow[0] = flow_i_to_j.cpu().numpy()
+                optical_flow[1] = flow_j_to_i.cpu().numpy()
+                np.save(f"{results_path}flow_{i_str}_{j_str}.npy", optical_flow)
                 
                 # save masks as npy file
                 masks = np.zeros((H, W, 2), dtype=np.bool)
