@@ -134,93 +134,108 @@ def main():
     # seq lenght
     seq_len = 30
     
-    # 
-    keyframe_interval = 30
+    #
+    window_size = 30
     
     # select 
     images_paths = images_paths[:seq_len]
     print("images_paths", len(images_paths))
     
-    results_path = f"./outputs/outs_{seq_len}_{keyframe_interval}_{int(tau)}/"
+    results_path = f"./outputs/outs_{seq_len}_ws_{window_size}_{int(tau)}/"
     
-    for j in range(0, seq_len, keyframe_interval):
+    for window_start_idx in range(0, seq_len - window_size + 1, 1):
         
-        print("j", j)
-        j_str = format(j, '05d')
-        image1 = cv2.imread(images_paths[j])
-        image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
-        print("image1", image1.shape, image1.min(), image1.max())
-        image1 = torch.tensor(image1, dtype=torch.float32).permute(2, 0, 1)
-        H, W = image1.shape[1:]
-        image1 = image1[None].to(device)
-        print("image1", image1.shape, image1.min(), image1.max())
+        print("window_start_idx", window_start_idx)
         
-        for f in range(1, keyframe_interval + 1):
+        for i_ in range(0, window_size - 1, 1):
+            for j_ in range(i_, window_size, 1):
+                # j indexes the neighbors
             
-            i = j + f
-            print("i", i)
-            
-            if i >= seq_len:
-                break
-            
-            i_str = format(i, '05d')
-            
-            image2 = cv2.imread(images_paths[i])
-            image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
-            image2 = torch.tensor(image2, dtype=torch.float32).permute(2, 0, 1)
-            image2 = image2[None].to(device)
-        
-            flow_fw, info_fw, heatmap_fw = demo_data(results_path, f'fw_{j_str}_{i_str}', args, model, image1, image2)
-            flow_bw, info_bw, heatmap_bw = demo_data(results_path, f'bw_{j_str}_{i_str}', args, model, image2, image1)
+                if i_ == j_:
+                    continue
                 
-            mask_fw, error_fw = consistency_mask(flow_fw, flow_bw, tau)
-            mask_bw, error_bw = consistency_mask(flow_bw, flow_fw, tau)
+                i = window_start_idx + i_
+                j = window_start_idx + j_
+        
+                print("i", i, "j", j)
+                
+                i_str = format(i, '05d')
+                j_str = format(j, '05d')
+        
+                image1 = cv2.imread(images_paths[i])
+                image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
+                print("image1", image1.shape, image1.min(), image1.max())
+                image1 = torch.tensor(image1, dtype=torch.float32).permute(2, 0, 1)
+                H, W = image1.shape[1:]
+                image1 = image1[None].to(device)
+                print("image1", image1.shape, image1.min(), image1.max())
             
-            # vis errors
-            fig = plt.figure(figsize=(15, 5))
-            axs = fig.subplots(1, 2)
-            im = axs[0].matshow(error_fw, cmap='viridis')
-            axs[0].set_title("error_fw")
-            fig.colorbar(im, ax=axs[0])
-            im = axs[1].matshow(error_bw, cmap='viridis')
-            axs[1].set_title("error_bw")
-            fig.colorbar(im, ax=axs[1])
-            plt.savefig(f"{results_path}consistency_{j_str}_{i_str}.png")
-            plt.close()
+                image2 = cv2.imread(images_paths[j])
+                image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+                image2 = torch.tensor(image2, dtype=torch.float32).permute(2, 0, 1)
+                image2 = image2[None].to(device)
+        
+                flow_fw, info_fw, heatmap_fw = demo_data(results_path, f'fw_{i_str}_{j_str}', args, model, image1, image2)
+                flow_bw, info_bw, heatmap_bw = demo_data(results_path, f'bw_{i_str}_{j_str}', args, model, image2, image1)
+                # flow_fw (H, W, 2)
+                # flow_bw (H, W, 2)
+                    
+                mask_fw, error_fw = consistency_mask(flow_fw, flow_bw, tau)
+                mask_bw, error_bw = consistency_mask(flow_bw, flow_fw, tau)
+                
+                # vis errors
+                fig = plt.figure(figsize=(15, 5))
+                axs = fig.subplots(1, 2)
+                im = axs[0].matshow(error_fw, cmap='viridis')
+                axs[0].set_title("error_fw")
+                fig.colorbar(im, ax=axs[0])
+                im = axs[1].matshow(error_bw, cmap='viridis')
+                axs[1].set_title("error_bw")
+                fig.colorbar(im, ax=axs[1])
+                plt.savefig(f"{results_path}consistency_{i_str}_{j_str}.png")
+                plt.close()
 
-            # mask image2
-            image2_masked = image2[0].permute(1, 2, 0).clone()
-            # not mask
-            image2_masked[~mask_bw] = image2_masked[~mask_bw] * 0.25
-            image2_masked = image2_masked.cpu().numpy()
-            image1_np = image1[0].permute(1, 2, 0).cpu().numpy()
-            # concatenate image1 to the left of image2_masked
-            image2_masked = np.concatenate([image1_np, image2_masked], axis=1)
-            image2_masked = cv2.cvtColor(image2_masked, cv2.COLOR_RGB2BGR)
-            # save as jpg
-            cv2.imwrite(f"{results_path}rgb_masked_bw_{j_str}_{i_str}.jpg", image2_masked)
-            
-            # mask image1
-            image1_masked = image1[0].permute(1, 2, 0).clone()
-            # not mask
-            image1_masked[~mask_fw] = image1_masked[~mask_fw] * 0.25
-            image1_masked = image1_masked.cpu().numpy()
-            image2_np = image2[0].permute(1, 2, 0).cpu().numpy()
-            # concatenate image2 to the right of image1_masked
-            image1_masked = np.concatenate([image1_masked, image2_np], axis=1)
-            image1_masked = cv2.cvtColor(image1_masked, cv2.COLOR_RGB2BGR)
-            # save as jpg
-            cv2.imwrite(f"{results_path}rgb_masked_fw_{j_str}_{i_str}.jpg", image1_masked)
-            
-            # save as jpg
-            mask_fw_vis = (mask_fw.cpu().numpy() * 255).astype(np.uint8)
-            mask_bw_vis = (mask_bw.cpu().numpy() * 255).astype(np.uint8)
-            cv2.imwrite(f"{results_path}mask_fw_{j_str}_{i_str}.jpg", mask_fw_vis)
-            cv2.imwrite(f"{results_path}mask_bw_{j_str}_{i_str}.jpg", mask_bw_vis)
-            
-            # save as npy file
-            np.save(f"{results_path}mask_fw_{j_str}_{i_str}.npy", mask_fw.cpu().numpy())
-            np.save(f"{results_path}mask_bw_{j_str}_{i_str}.npy", mask_bw.cpu().numpy())
+                # mask image2
+                image2_masked = image2[0].permute(1, 2, 0).clone()
+                # not mask
+                image2_masked[~mask_bw] = image2_masked[~mask_bw] * 0.25
+                image2_masked = image2_masked.cpu().numpy()
+                image1_np = image1[0].permute(1, 2, 0).cpu().numpy()
+                # concatenate image1 to the left of image2_masked
+                image2_masked = np.concatenate([image1_np, image2_masked], axis=1)
+                image2_masked = cv2.cvtColor(image2_masked, cv2.COLOR_RGB2BGR)
+                # save as jpg
+                cv2.imwrite(f"{results_path}rgb_masked_bw_{i_str}_{j_str}.jpg", image2_masked)
+                
+                # mask image1
+                image1_masked = image1[0].permute(1, 2, 0).clone()
+                # not mask
+                image1_masked[~mask_fw] = image1_masked[~mask_fw] * 0.25
+                image1_masked = image1_masked.cpu().numpy()
+                image2_np = image2[0].permute(1, 2, 0).cpu().numpy()
+                # concatenate image2 to the right of image1_masked
+                image1_masked = np.concatenate([image1_masked, image2_np], axis=1)
+                image1_masked = cv2.cvtColor(image1_masked, cv2.COLOR_RGB2BGR)
+                # save as jpg
+                cv2.imwrite(f"{results_path}rgb_masked_fw_{i_str}_{j_str}.jpg", image1_masked)
+                
+                # save as jpg
+                mask_fw_vis = (mask_fw.cpu().numpy() * 255).astype(np.uint8)
+                mask_bw_vis = (mask_bw.cpu().numpy() * 255).astype(np.uint8)
+                cv2.imwrite(f"{results_path}mask_fw_{i_str}_{j_str}.jpg", mask_fw_vis)
+                cv2.imwrite(f"{results_path}mask_bw_{i_str}_{j_str}.jpg", mask_bw_vis)
+                
+                # save of as npy file
+                optical_flow = np.zeros((2, H, W, 2), dtype=np.float32)
+                optical_flow[0] = flow_fw.cpu().numpy()
+                optical_flow[1] = flow_fw.cpu().numpy()
+                np.save(f"{results_path}flow_fw_{i_str}_{j_str}.npy", optical_flow)
+                
+                # save masks as npy file
+                masks = np.zeros((H, W, 2), dtype=np.bool)
+                masks[:, :, 0] = mask_fw.cpu().numpy()
+                masks[:, :, 1] = mask_bw.cpu().numpy()
+                np.save(f"{results_path}masks_{i_str}_{j_str}.npy", masks)
 
 if __name__ == '__main__':
     main()
