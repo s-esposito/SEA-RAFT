@@ -1,5 +1,6 @@
 import sys
-sys.path.append('core')
+
+sys.path.append("core")
 import argparse
 import os
 import cv2
@@ -14,28 +15,29 @@ from raft import RAFT
 from utils.flow_viz import flow_to_image
 from utils.utils import load_ckpt
 
+
 def vis_heatmap(name, image, heatmap):
     # theta = 0.01
     # print(heatmap.max(), heatmap.min(), heatmap.mean())
     heatmap = heatmap[:, :, 0]
     # heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
-    
+
     fig = plt.figure(figsize=(15, 5))
     axs = fig.subplots(1, 2)
-    cax = axs[0].matshow(heatmap, cmap='viridis', vmin=0)
+    cax = axs[0].matshow(heatmap, cmap="viridis", vmin=0)
     fig.colorbar(cax)
-    
+
     # heatmap = heatmap > 0.01
     heatmap = (heatmap * 255).astype(np.uint8)
     colored_heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_VIRIDIS)
     overlay = image * 0.3 + colored_heatmap * 0.7
     overlay = overlay.astype(np.uint8)
-    
+
     axs[1].imshow(overlay)
-    
+
     plt.savefig(name)
     plt.close()
-    
+
     # Create a color bar
     # height, width = image.shape[:2]
     # color_bar = create_color_bar(25, width, cv2.COLORMAP_VIRIDIS)  # Adjust the height and colormap as needed
@@ -44,71 +46,96 @@ def vis_heatmap(name, image, heatmap):
     # combined_image = add_color_bar_to_image(overlay, color_bar, 'vertical')
     # cv2.imwrite(name, cv2.cvtColor(combined_image, cv2.COLOR_RGB2BGR))
 
+
 def get_heatmap(info, args):
     raw_b = info[:, 2:]
     log_b = torch.zeros_like(raw_b)
-    weight = info[:, :2].softmax(dim=1)              
+    weight = info[:, :2].softmax(dim=1)
     log_b[:, 0] = torch.clamp(raw_b[:, 0], min=0, max=args.var_max)
     log_b[:, 1] = torch.clamp(raw_b[:, 1], min=args.var_min, max=0)
     heatmap = (log_b * weight).sum(dim=1, keepdim=True)
     return heatmap
 
+
 def forward_flow(args, model, image1, image2):
     output = model(image1, image2, iters=args.iters, test_mode=True)
-    flow_final = output['flow'][-1]
-    info_final = output['info'][-1]
+    flow_final = output["flow"][-1]
+    info_final = output["info"][-1]
     return flow_final, info_final
 
+
 def calc_flow(args, model, image1, image2):
-    img1 = F.interpolate(image1, scale_factor=2 ** args.scale, mode='bilinear', align_corners=False)
-    img2 = F.interpolate(image2, scale_factor=2 ** args.scale, mode='bilinear', align_corners=False)
+    img1 = F.interpolate(
+        image1, scale_factor=2**args.scale, mode="bilinear", align_corners=False
+    )
+    img2 = F.interpolate(
+        image2, scale_factor=2**args.scale, mode="bilinear", align_corners=False
+    )
     flow, info = forward_flow(args, model, img1, img2)
-    flow_down = F.interpolate(flow, scale_factor=0.5 ** args.scale, mode='bilinear', align_corners=False) * (0.5 ** args.scale)
-    info_down = F.interpolate(info, scale_factor=0.5 ** args.scale, mode='area')
+    flow_down = F.interpolate(
+        flow, scale_factor=0.5**args.scale, mode="bilinear", align_corners=False
+    ) * (0.5**args.scale)
+    info_down = F.interpolate(info, scale_factor=0.5**args.scale, mode="area")
     return flow_down, info_down
+
 
 @torch.no_grad()
 def demo_data(path, mode, args, model, image1, image2):
     os.system(f"mkdir -p {path}")
     H, W = image1.shape[2:]
-    
+
     flow, info = calc_flow(args, model, image1, image2)
     flow = flow[0].permute(1, 2, 0)
-    
+
     # save as npy file
     np.save(f"{path}flow_{mode}.npy", flow.cpu().numpy())
-    
+
     flow_vis = flow_to_image(flow.cpu().numpy(), convert_to_bgr=False)
-    
+
     image1_np = image1[0].permute(1, 2, 0).cpu().numpy()
     image2_np = image2[0].permute(1, 2, 0).cpu().numpy()
-    # rgb to bgr 
+    # rgb to bgr
     image1_np = cv2.cvtColor(image1_np, cv2.COLOR_RGB2BGR)
     image2_np = cv2.cvtColor(image2_np, cv2.COLOR_RGB2BGR)
     # concatenate image1 to the left of flow_vis
     flow_vis = np.concatenate([image1_np, flow_vis], axis=1)
     # concatenate image2 to the right of flow_vis
     flow_vis = np.concatenate([flow_vis, image2_np], axis=1)
-    
+
     cv2.imwrite(f"{path}flow_{mode}.jpg", flow_vis)
-    
+
     heatmap = get_heatmap(info, args)
     heatmap = heatmap[0].permute(1, 2, 0)
-    
+
     # save as npy file
     np.save(f"{path}heatmap_{mode}.npy", heatmap.cpu().numpy())
-    vis_heatmap(f"{path}heatmap_{mode}.jpg", image1[0].permute(1, 2, 0).cpu().numpy(), heatmap.cpu().numpy())
-    
+    vis_heatmap(
+        f"{path}heatmap_{mode}.jpg",
+        image1[0].permute(1, 2, 0).cpu().numpy(),
+        heatmap.cpu().numpy(),
+    )
+
     return flow, info, heatmap
-    
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', help='experiment configure file name', type=str, default="config/eval/spring-L.json")
-    parser.add_argument('--path', help='checkpoint path', type=str, default="models/Tartan-C-T-TSKH-spring540x960-M.pth")
-    parser.add_argument('--url', help='checkpoint url', type=str, default=None)
-    parser.add_argument('--device', help='inference device', type=str, default='cpu')
+    parser.add_argument(
+        "--cfg",
+        help="experiment configure file name",
+        type=str,
+        default="config/eval/spring-L.json",
+    )
+    parser.add_argument(
+        "--path",
+        help="checkpoint path",
+        type=str,
+        default="models/Tartan-C-T-TSKH-spring540x960-M.pth",
+    )
+    parser.add_argument("--url", help="checkpoint url", type=str, default=None)
+    parser.add_argument("--device", help="inference device", type=str, default="cpu")
     args = parse_args(parser)
-    
+
     if args.path is None and args.url is None:
         raise ValueError("Either --path or --url must be provided")
     if args.path is not None:
@@ -116,37 +143,39 @@ def main():
         load_ckpt(model, args.path)
     else:
         model = RAFT.from_pretrained(args.url, args=args)
-        
-    if args.device == 'cuda':
-        device = torch.device('cuda')
+
+    if args.device == "cuda":
+        device = torch.device("cuda")
     else:
-        device = torch.device('cpu')
+        device = torch.device("cpu")
     model = model.to(device)
     model.eval()
-    
+
     # images_paths
-    images_paths = glob.glob("/home/stefano/Codebase/DynSLAM/data/kubric/dynamic/rgba/rgba_*.png")
+    images_paths = glob.glob(
+        "/home/stefano/Codebase/DynSLAM/data/kubric/dynamic/rgba/rgba_*.png"
+    )
     images_paths.sort()
-    
-    # 
+
+    #
     tau = 10.0
-    
+
     # seq lenght
     seq_len = 30
-    
-    # 
+
+    #
     keyframe_interval = 30
-    
-    # select 
+
+    # select
     images_paths = images_paths[:seq_len]
     print("images_paths", len(images_paths))
-    
+
     results_path = f"./outputs/outs_{seq_len}_{keyframe_interval}_{int(tau)}/"
-    
+
     for j in range(0, seq_len, keyframe_interval):
-        
+
         print("j", j)
-        j_str = format(j, '05d')
+        j_str = format(j, "05d")
         image1 = cv2.imread(images_paths[j])
         image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
         print("image1", image1.shape, image1.min(), image1.max())
@@ -154,35 +183,39 @@ def main():
         H, W = image1.shape[1:]
         image1 = image1[None].to(device)
         print("image1", image1.shape, image1.min(), image1.max())
-        
+
         for f in range(1, keyframe_interval + 1):
-            
+
             i = j + f
             print("i", i)
-            
+
             if i >= seq_len:
                 break
-            
-            i_str = format(i, '05d')
-            
+
+            i_str = format(i, "05d")
+
             image2 = cv2.imread(images_paths[i])
             image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
             image2 = torch.tensor(image2, dtype=torch.float32).permute(2, 0, 1)
             image2 = image2[None].to(device)
-        
-            flow_fw, info_fw, heatmap_fw = demo_data(results_path, f'fw_{j_str}_{i_str}', args, model, image1, image2)
-            flow_bw, info_bw, heatmap_bw = demo_data(results_path, f'bw_{j_str}_{i_str}', args, model, image2, image1)
-                
+
+            flow_fw, info_fw, heatmap_fw = demo_data(
+                results_path, f"fw_{j_str}_{i_str}", args, model, image1, image2
+            )
+            flow_bw, info_bw, heatmap_bw = demo_data(
+                results_path, f"bw_{j_str}_{i_str}", args, model, image2, image1
+            )
+
             mask_fw, error_fw = consistency_mask(flow_fw, flow_bw, tau)
             mask_bw, error_bw = consistency_mask(flow_bw, flow_fw, tau)
-            
+
             # vis errors
             fig = plt.figure(figsize=(15, 5))
             axs = fig.subplots(1, 2)
-            im = axs[0].matshow(error_fw, cmap='viridis')
+            im = axs[0].matshow(error_fw, cmap="viridis")
             axs[0].set_title("error_fw")
             fig.colorbar(im, ax=axs[0])
-            im = axs[1].matshow(error_bw, cmap='viridis')
+            im = axs[1].matshow(error_bw, cmap="viridis")
             axs[1].set_title("error_bw")
             fig.colorbar(im, ax=axs[1])
             plt.savefig(f"{results_path}consistency_{j_str}_{i_str}.png")
@@ -198,8 +231,10 @@ def main():
             image2_masked = np.concatenate([image1_np, image2_masked], axis=1)
             image2_masked = cv2.cvtColor(image2_masked, cv2.COLOR_RGB2BGR)
             # save as jpg
-            cv2.imwrite(f"{results_path}rgb_masked_bw_{j_str}_{i_str}.jpg", image2_masked)
-            
+            cv2.imwrite(
+                f"{results_path}rgb_masked_bw_{j_str}_{i_str}.jpg", image2_masked
+            )
+
             # mask image1
             image1_masked = image1[0].permute(1, 2, 0).clone()
             # not mask
@@ -210,17 +245,20 @@ def main():
             image1_masked = np.concatenate([image1_masked, image2_np], axis=1)
             image1_masked = cv2.cvtColor(image1_masked, cv2.COLOR_RGB2BGR)
             # save as jpg
-            cv2.imwrite(f"{results_path}rgb_masked_fw_{j_str}_{i_str}.jpg", image1_masked)
-            
+            cv2.imwrite(
+                f"{results_path}rgb_masked_fw_{j_str}_{i_str}.jpg", image1_masked
+            )
+
             # save as jpg
             mask_fw_vis = (mask_fw.cpu().numpy() * 255).astype(np.uint8)
             mask_bw_vis = (mask_bw.cpu().numpy() * 255).astype(np.uint8)
             cv2.imwrite(f"{results_path}mask_fw_{j_str}_{i_str}.jpg", mask_fw_vis)
             cv2.imwrite(f"{results_path}mask_bw_{j_str}_{i_str}.jpg", mask_bw_vis)
-            
+
             # save as npy file
             np.save(f"{results_path}mask_fw_{j_str}_{i_str}.npy", mask_fw.cpu().numpy())
             np.save(f"{results_path}mask_bw_{j_str}_{i_str}.npy", mask_bw.cpu().numpy())
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

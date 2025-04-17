@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from layer import ConvNextBlock
 
+
 class FlowHead(nn.Module):
     def __init__(self, input_dim=128, hidden_dim=256, output_dim=4):
         super(FlowHead, self).__init__()
@@ -13,15 +14,16 @@ class FlowHead(nn.Module):
     def forward(self, x):
         return self.conv2(self.relu(self.conv1(x)))
 
+
 class BasicMotionEncoder(nn.Module):
     def __init__(self, args, dim=128):
         super(BasicMotionEncoder, self).__init__()
         cor_planes = args.corr_channel
-        self.convc1 = nn.Conv2d(cor_planes, dim*2, 1, padding=0)
-        self.convc2 = nn.Conv2d(dim*2, dim+dim//2, 3, padding=1)
+        self.convc1 = nn.Conv2d(cor_planes, dim * 2, 1, padding=0)
+        self.convc2 = nn.Conv2d(dim * 2, dim + dim // 2, 3, padding=1)
         self.convf1 = nn.Conv2d(2, dim, 7, padding=3)
-        self.convf2 = nn.Conv2d(dim, dim//2, 3, padding=1)
-        self.conv = nn.Conv2d(dim*2, dim-2, 3, padding=1)
+        self.convf2 = nn.Conv2d(dim, dim // 2, 3, padding=1)
+        self.conv = nn.Conv2d(dim * 2, dim - 2, 3, padding=1)
 
     def forward(self, flow, corr):
         cor = F.relu(self.convc1(corr))
@@ -32,16 +34,17 @@ class BasicMotionEncoder(nn.Module):
         cor_flo = torch.cat([cor, flo], dim=1)
         out = F.relu(self.conv(cor_flo))
         return torch.cat([out, flow], dim=1)
-    
+
+
 class BasicUpdateBlock(nn.Module):
     def __init__(self, args, hdim=128, cdim=128):
-        #net: hdim, inp: cdim
+        # net: hdim, inp: cdim
         super(BasicUpdateBlock, self).__init__()
         self.args = args
         self.encoder = BasicMotionEncoder(args, dim=cdim)
         self.refine = []
         for i in range(args.num_blocks):
-            self.refine.append(ConvNextBlock(2*cdim+hdim, hdim))
+            self.refine.append(ConvNextBlock(2 * cdim + hdim, hdim))
         self.refine = nn.ModuleList(self.refine)
 
     def forward(self, net, inp, corr, flow, upsample=True):

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from consistency_utils import consistency_mask
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     image1_path = "./custom/image1.*"
     image2_path = "./custom/image2.*"
     image1_path = glob.glob(image1_path)
@@ -44,6 +44,6 @@ if __name__ == '__main__':
 
     mask_image2 = image2.copy()
     mask_image2[mask_bw] = 0
-    
+
     plt.imshow(mask_image2)
     plt.show()
